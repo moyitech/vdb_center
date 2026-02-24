@@ -33,11 +33,49 @@ sync_engine = create_engine(
     connect_args={"options": "-c timezone=Asia/Shanghai"}
 )
 
-from sqlalchemy import text
-
 with sync_engine.begin() as conn:
     conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 Base.metadata.create_all(bind=sync_engine)  # type: ignore
+
+# 兼容已存在库的最小迁移：补齐 qa_items / question / answer 字段与约束
+with sync_engine.begin() as conn:
+    conn.execute(
+        text(
+            "ALTER TABLE knowledge_base "
+            "ADD COLUMN IF NOT EXISTS qa_items BOOLEAN NOT NULL DEFAULT FALSE"
+        )
+    )
+    conn.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_base_project_qa_items "
+            "ON knowledge_base(project_id) "
+            "WHERE qa_items = TRUE AND is_deleted = 0"
+        )
+    )
+    conn.execute(
+        text(
+            "ALTER TABLE item "
+            "ADD COLUMN IF NOT EXISTS question TEXT"
+        )
+    )
+    conn.execute(
+        text(
+            "ALTER TABLE item "
+            "ADD COLUMN IF NOT EXISTS answer TEXT"
+        )
+    )
+    conn.execute(
+        text(
+            "ALTER TABLE knowledge_base "
+            "ADD COLUMN IF NOT EXISTS success_count INTEGER NOT NULL DEFAULT 0"
+        )
+    )
+    conn.execute(
+        text(
+            "ALTER TABLE knowledge_base "
+            "ADD COLUMN IF NOT EXISTS failed_count INTEGER NOT NULL DEFAULT 0"
+        )
+    )
 
 
 DBSession = async_sessionmaker(

@@ -5,10 +5,12 @@ from src.db.models import (
     Item,
     KnowledgeBase,
     KB_INGEST_STATUS_INGESTING,
+    KB_INGEST_STATUS_SUCCEEDED,
     KB_INGEST_STATUS_VALUES,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from typing import Callable
 import re
 import jieba
@@ -49,16 +51,160 @@ def _tokens_to_ts_text(tokens: list[str]) -> str:
     return " ".join(tokens)
 
 
-async def create_kb(session: AsyncSession, file_name: str, project_id: int) -> int:
+async def create_kb(
+    session: AsyncSession,
+    file_name: str,
+    project_id: int,
+    *,
+    qa_items: bool = False,
+    ingest_status: str = KB_INGEST_STATUS_INGESTING,
+) -> int:
     """创建一个新的知识库记录，返回其ID"""
+    if ingest_status not in KB_INGEST_STATUS_VALUES:
+        raise ValueError(
+            f"Invalid ingest_status: {ingest_status}, allowed: {KB_INGEST_STATUS_VALUES}"
+        )
+
     kb = KnowledgeBase(
         file_name=file_name,
         project_id=project_id,
-        ingest_status=KB_INGEST_STATUS_INGESTING,
+        ingest_status=ingest_status,
+        qa_items=qa_items,
     )
     session.add(kb)
     await session.flush()
     return kb.id
+
+
+async def get_project_qa_kb_id(session: AsyncSession, project_id: int) -> int | None:
+    """
+    获取项目下 QA 专用 KB 的 ID（qa_items=true）。不存在则返回 None。
+    """
+    stmt = (
+        select(KnowledgeBase.id)
+        .where(
+            KnowledgeBase.project_id == project_id,
+            KnowledgeBase.qa_items.is_(True),
+            KnowledgeBase.is_deleted == 0,
+        )
+        .order_by(KnowledgeBase.id.asc())
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def get_or_create_project_qa_kb_id(session: AsyncSession, project_id: int) -> int:
+    """
+    获取或创建项目级 QA 专用 KB（每个 project 最多一个）。
+    """
+    # 事务级项目锁，避免并发请求在“先查后建”阶段创建出多个 QA KB。
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(:lock_key)"),
+        {"lock_key": int(project_id)},
+    )
+
+    kb_id = await get_project_qa_kb_id(session, project_id)
+    if kb_id is not None:
+        return kb_id
+
+    try:
+        return await create_kb(
+            session=session,
+            file_name="qa_items",
+            project_id=project_id,
+            qa_items=True,
+            ingest_status=KB_INGEST_STATUS_SUCCEEDED,
+        )
+    except IntegrityError:
+        await session.rollback()
+        kb_id = await get_project_qa_kb_id(session, project_id)
+        if kb_id is None:
+            raise
+        return kb_id
+
+
+async def get_next_chunk_index(session: AsyncSession, kb_id: int, project_id: int) -> int:
+    """
+    计算下一个可用 chunk_index（单调递增，包含已删除记录）。
+    """
+    stmt = (
+        select(func.coalesce(func.max(Item.chunk_index), -1))
+        .where(Item.kb_id == kb_id, Item.project_id == project_id)
+    )
+    result = await session.execute(stmt)
+    max_chunk_index = result.scalar_one()
+    return int(max_chunk_index) + 1
+
+
+async def get_item_id_by_chunk_index(
+    session: AsyncSession,
+    kb_id: int,
+    project_id: int,
+    chunk_index: int,
+) -> int | None:
+    stmt = (
+        select(Item.id)
+        .where(
+            Item.kb_id == kb_id,
+            Item.project_id == project_id,
+            Item.chunk_index == chunk_index,
+            Item.is_deleted == 0,
+        )
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none()
+
+
+async def soft_delete_items_by_ids(
+    session: AsyncSession,
+    kb_id: int,
+    project_id: int,
+    item_ids: list[int],
+) -> int:
+    """
+    按 item id 批量软删除，返回删除条数。
+    """
+    if not item_ids:
+        return 0
+
+    result = await session.execute(
+        update(Item)
+        .where(
+            Item.kb_id == kb_id,
+            Item.project_id == project_id,
+            Item.is_deleted == 0,
+            Item.id.in_(item_ids),
+        )
+        .values(is_deleted=1, update_time=func.now())
+    )
+    return int(result.rowcount or 0)
+
+
+async def get_existing_origin_texts(
+    session: AsyncSession,
+    kb_id: int,
+    project_id: int,
+    origin_texts: list[str],
+) -> set[str]:
+    """
+    查询已存在的 origin_text，返回命中集合（仅未删除记录）。
+    """
+    if not origin_texts:
+        return set()
+
+    stmt = (
+        select(Item.origin_text)
+        .where(
+            Item.kb_id == kb_id,
+            Item.project_id == project_id,
+            Item.is_deleted == 0,
+            Item.origin_text.in_(origin_texts),
+        )
+    )
+    result = await session.execute(stmt)
+    return {row[0] for row in result.all() if row[0] is not None}
 
 
 async def update_kb_ingest_status(
@@ -66,11 +212,23 @@ async def update_kb_ingest_status(
     kb_id: int,
     project_id: int,
     ingest_status: str,
+    *,
+    success_count: int | None = None,
+    failed_count: int | None = None,
 ):
     if ingest_status not in KB_INGEST_STATUS_VALUES:
         raise ValueError(
             f"Invalid ingest_status: {ingest_status}, allowed: {KB_INGEST_STATUS_VALUES}"
         )
+
+    values: dict[str, object] = {
+        "ingest_status": ingest_status,
+        "update_time": func.now(),
+    }
+    if success_count is not None:
+        values["success_count"] = max(0, int(success_count))
+    if failed_count is not None:
+        values["failed_count"] = max(0, int(failed_count))
 
     await session.execute(
         update(KnowledgeBase)
@@ -79,7 +237,7 @@ async def update_kb_ingest_status(
             KnowledgeBase.project_id == project_id,
             KnowledgeBase.is_deleted == 0,
         )
-        .values(ingest_status=ingest_status, update_time=func.now())
+        .values(**values)
     )
 
 
@@ -98,6 +256,8 @@ async def upsert_chunks(session: AsyncSession, kb_id: int, project_id: int, chun
             "project_id": project_id,
             "chunk_index": c["chunk_index"],
             "origin_text": c["text"],
+            "question": c.get("question"),
+            "answer": c.get("answer"),
             "embedding": c["dense"],
             "fts": make_fts(c["tokens"]),
             "is_deleted": 0,  # 重新写入时确保恢复可用
@@ -108,6 +268,8 @@ async def upsert_chunks(session: AsyncSession, kb_id: int, project_id: int, chun
         index_elements=["kb_id", "chunk_index"],
         set_={
             "origin_text": stmt.excluded.origin_text,
+            "question": stmt.excluded.question,
+            "answer": stmt.excluded.answer,
             "embedding": stmt.excluded.embedding,
             "fts": stmt.excluded.fts,
             "project_id": stmt.excluded.project_id,
@@ -117,6 +279,85 @@ async def upsert_chunks(session: AsyncSession, kb_id: int, project_id: int, chun
     )
 
     await session.execute(stmt)
+
+
+async def update_qa_item_by_id(
+    session: AsyncSession,
+    kb_id: int,
+    project_id: int,
+    item_id: int,
+    question: str,
+    answer: str,
+    text_value: str,
+    embedding: list[float],
+    tokens: list[str],
+) -> bool:
+    """
+    更新单条 QA item（仅在指定 QA KB 范围内）。
+    """
+    result = await session.execute(
+        update(Item)
+        .where(
+            Item.id == item_id,
+            Item.kb_id == kb_id,
+            Item.project_id == project_id,
+            Item.is_deleted == 0,
+        )
+        .values(
+            question=question,
+            answer=answer,
+            origin_text=text_value,
+            embedding=embedding,
+            fts=make_fts(tokens),
+            update_time=func.now(),
+        )
+    )
+    return int(result.rowcount or 0) > 0
+
+
+async def get_qa_item_list(
+    session: AsyncSession,
+    kb_id: int,
+    project_id: int,
+    *,
+    limit: int = 200,
+) -> list[dict]:
+    """
+    获取 QA 专用 KB 下的 item 列表。
+    """
+    stmt = (
+        select(
+            Item.id,
+            Item.kb_id,
+            Item.chunk_index,
+            Item.question,
+            Item.answer,
+            Item.create_time,
+            Item.update_time,
+        )
+        .where(
+            Item.kb_id == kb_id,
+            Item.project_id == project_id,
+            Item.is_deleted == 0,
+        )
+        .order_by(Item.chunk_index.asc())
+        .limit(limit)
+    )
+
+    result = await session.execute(stmt)
+    rows = result.all()
+    return [
+        {
+            "id": row.id,
+            "kb_id": row.kb_id,
+            "chunk_index": row.chunk_index,
+            "question": row.question,
+            "answer": row.answer,
+            "create_time": row.create_time,
+            "update_time": row.update_time,
+        }
+        for row in rows
+    ]
 
 
 async def soft_delete_kb_and_chunks(session: AsyncSession, kb_id: int, project_id: int):
@@ -246,12 +487,17 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
         select(
             KnowledgeBase.id,
             KnowledgeBase.file_name,
+            KnowledgeBase.qa_items,
             KnowledgeBase.ingest_status,
             KnowledgeBase.create_time,
             KnowledgeBase.update_time,
             func.count(Item.id).label("chunk_count")
         )
-        .where(KnowledgeBase.project_id == project_id, KnowledgeBase.is_deleted == 0)
+        .where(
+            KnowledgeBase.project_id == project_id,
+            KnowledgeBase.is_deleted == 0,
+            KnowledgeBase.qa_items.is_(False),
+        )
         .outerjoin(
             Item,
             (Item.kb_id == KnowledgeBase.id)
@@ -261,6 +507,7 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
         .group_by(
             KnowledgeBase.id,
             KnowledgeBase.file_name,
+            KnowledgeBase.qa_items,
             KnowledgeBase.ingest_status,
             KnowledgeBase.create_time,
             KnowledgeBase.update_time,
@@ -274,6 +521,7 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
         {
             "id": row.id,
             "file_name": row.file_name,
+            "qa_items": row.qa_items,
             "ingest_status": row.ingest_status,
             "chunk_count": row.chunk_count,
             "create_time": row.create_time,
@@ -296,7 +544,10 @@ async def get_kb_task_status(
             KnowledgeBase.id,
             KnowledgeBase.project_id,
             KnowledgeBase.file_name,
+            KnowledgeBase.qa_items,
             KnowledgeBase.ingest_status,
+            KnowledgeBase.success_count,
+            KnowledgeBase.failed_count,
             KnowledgeBase.create_time,
             KnowledgeBase.update_time,
             func.count(Item.id).label("chunk_count"),
@@ -316,7 +567,10 @@ async def get_kb_task_status(
             KnowledgeBase.id,
             KnowledgeBase.project_id,
             KnowledgeBase.file_name,
+            KnowledgeBase.qa_items,
             KnowledgeBase.ingest_status,
+            KnowledgeBase.success_count,
+            KnowledgeBase.failed_count,
             KnowledgeBase.create_time,
             KnowledgeBase.update_time,
         )
@@ -331,7 +585,10 @@ async def get_kb_task_status(
         "id": row.id,
         "project_id": row.project_id,
         "file_name": row.file_name,
+        "qa_items": row.qa_items,
         "ingest_status": row.ingest_status,
+        "success_count": row.success_count,
+        "failed_count": row.failed_count,
         "chunk_count": row.chunk_count,
         "create_time": row.create_time,
         "update_time": row.update_time,

@@ -1,4 +1,4 @@
-from sqlalchemy import BigInteger, Text, Integer, DateTime, Index, ForeignKey, UniqueConstraint, CheckConstraint
+from sqlalchemy import BigInteger, Text, Integer, DateTime, Index, ForeignKey, UniqueConstraint, CheckConstraint, Boolean, text
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import TSVECTOR
@@ -52,6 +52,13 @@ class KnowledgeBase(Base, TimestampMixin, SoftDeleteMixin):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     file_name: Mapped[str] = mapped_column(Text, nullable=True)  # 记录原始文件名
     project_id: Mapped[int] = mapped_column(BigInteger, nullable=True, index=True)  # 可选的项目ID，便于多项目管理
+    qa_items: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        server_default=text("false"),
+        index=True,
+        comment="是否为项目级QA专用KB",
+    )
     ingest_status: Mapped[str] = mapped_column(
         Text,
         nullable=False,
@@ -59,9 +66,27 @@ class KnowledgeBase(Base, TimestampMixin, SoftDeleteMixin):
         index=True,
         comment="入库状态：ingesting/succeeded/failed",
     )
+    success_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="最近一次入库任务成功写入条数",
+    )
+    failed_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        server_default="0",
+        comment="最近一次入库任务失败条数",
+    )
     items: Mapped[list["Item"]] = relationship(back_populates="kb")
 
     __table_args__ = (
+        Index(
+            "uq_knowledge_base_project_qa_items",
+            "project_id",
+            unique=True,
+            postgresql_where=text("qa_items = true AND is_deleted = 0"),
+        ),
         CheckConstraint(
             "ingest_status IN ('ingesting', 'succeeded', 'failed')",
             name="ck_knowledge_base_ingest_status",
@@ -87,6 +112,8 @@ class Item(Base, TimestampMixin, SoftDeleteMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
 
     origin_text: Mapped[str] = mapped_column(Text)
+    question: Mapped[str | None] = mapped_column(Text, nullable=True, comment="QA问题")
+    answer: Mapped[str | None] = mapped_column(Text, nullable=True, comment="QA答案")
 
     embedding = mapped_column(VECTOR(1024))
     fts: Mapped[object] = mapped_column(TSVECTOR, nullable=True)

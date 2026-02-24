@@ -16,14 +16,28 @@ client = AsyncOpenAI(
 )
 
 
+# @retry(stop=stop_after_attempt(20), wait=wait_exponential(multiplier=1, min=1, max=10))
+# async def get_text_embedding(input_text: list[str]) -> list[list[float]]:
+#     completion = await client.embeddings.create(
+#         model="text-embedding-v4",
+#         input=input_text,
+#         dimensions=1024
+#     )
+#     return [item.embedding for item in completion.data]
+
+
 @retry(stop=stop_after_attempt(20), wait=wait_exponential(multiplier=1, min=1, max=10))
 async def get_text_embedding(input_text: list[str]) -> list[list[float]]:
-    completion = await client.embeddings.create(
-        model="text-embedding-v4",
-        input=input_text,
-        dimensions=1024
-    )
-    return [item.embedding for item in completion.data]
+    """
+    mock
+    """
+    # completion = await client.embeddings.create(
+    #     model="text-embedding-v4",
+    #     input=input_text,
+    #     dimensions=1024
+    # )
+    return [[0.1] * 1024 for _ in input_text]
+
 
 
 if __name__ == "__main__":
