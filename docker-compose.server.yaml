@@ -1,0 +1,39 @@
+services:
+  pgvector:
+    image: "${PGVECTOR_IMAGE:-pgvector/pgvector:pg18-trixie}"
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-vdb_centor}"
+      POSTGRES_USER: "${POSTGRES_USER:-pgvector}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-pgvector}"
+    ports:
+      - "${PGVECTOR_PORT:-45132}:5432"
+    volumes:
+      - vdb_centor_pgvector_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    image: "${API_IMAGE:?API_IMAGE is required, e.g. ghcr.io/<owner>/<repo>:latest}"
+    pull_policy: always
+    restart: unless-stopped
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DEBUG_MODE: "${DEBUG_MODE:-false}"
+      BIZ_DB_CONNECTION: "postgresql+psycopg://${POSTGRES_USER:-pgvector}:${POSTGRES_PASSWORD:-pgvector}@pgvector:5432/${POSTGRES_DB:-vdb_centor}"
+      VEC_DB_CONNECTION: "postgresql+asyncpg://${POSTGRES_USER:-pgvector}:${POSTGRES_PASSWORD:-pgvector}@pgvector:5432/${POSTGRES_DB:-vdb_centor}"
+      DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:?DASHSCOPE_API_KEY is required}"
+      ARK_API_KEY: "${ARK_API_KEY:-}"
+    volumes:
+      - vdb_centor_uploaded_files:/app/uploaded_files
+
+volumes:
+  vdb_centor_pgvector_data:
+  vdb_centor_uploaded_files:
