@@ -30,7 +30,6 @@ services:
       BIZ_DB_CONNECTION: "postgresql+psycopg://${POSTGRES_USER:-pgvector}:${POSTGRES_PASSWORD:-pgvector}@pgvector:5432/${POSTGRES_DB:-vdb_centor}"
       VEC_DB_CONNECTION: "postgresql+asyncpg://${POSTGRES_USER:-pgvector}:${POSTGRES_PASSWORD:-pgvector}@pgvector:5432/${POSTGRES_DB:-vdb_centor}"
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY:?DASHSCOPE_API_KEY is required}"
-      ARK_API_KEY: "${ARK_API_KEY:-}"
     volumes:
       - vdb_centor_uploaded_files:/app/uploaded_files
 
