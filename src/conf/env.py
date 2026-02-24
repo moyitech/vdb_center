@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     VEC_DB_CONNECTION: str = Field(...)
     # REDIS_CONNECTION: str = Field(...)
     LOGURU_LEVEL: str = Field(default="DEBUG")
-    ARK_API_KEY: str = Field(...)
     DASHSCOPE_API_KEY: str = Field(...)
     # OSS_ACCESS_KEY_ID: str = Field()
     # OSS_ACCESS_KEY_SECRET: str = Field()
