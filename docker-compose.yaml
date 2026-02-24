@@ -32,7 +32,6 @@ services:
       DEBUG_MODE: "${DEBUG_MODE:-false}"
       BIZ_DB_CONNECTION: "postgresql+psycopg://pgvector:pgvector@pgvector:5432/vdb_centor"
       VEC_DB_CONNECTION: "postgresql+asyncpg://pgvector:pgvector@pgvector:5432/vdb_centor"
-      ARK_API_KEY: "${ARK_API_KEY}"
       DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY}"
     volumes:
       - ./uploaded_files:/app/uploaded_files
