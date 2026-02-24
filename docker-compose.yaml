@@ -1,0 +1,41 @@
+services:
+  pgvector:
+    image: pgvector/pgvector:pg18-trixie
+    container_name: vdb-centor-pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vdb_centor
+      POSTGRES_USER: pgvector
+      POSTGRES_PASSWORD: pgvector
+    ports:
+      - "${PGVECTOR_PORT:-45132}:5432"
+    volumes:
+      - vdb_centor_pgvector_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pgvector -d postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vdb-centor-api
+    restart: unless-stopped
+    depends_on:
+      pgvector:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DEBUG_MODE: "${DEBUG_MODE:-false}"
+      BIZ_DB_CONNECTION: "postgresql+psycopg://pgvector:pgvector@pgvector:5432/vdb_centor"
+      VEC_DB_CONNECTION: "postgresql+asyncpg://pgvector:pgvector@pgvector:5432/vdb_centor"
+      ARK_API_KEY: "${ARK_API_KEY}"
+      DASHSCOPE_API_KEY: "${DASHSCOPE_API_KEY}"
+    volumes:
+      - ./uploaded_files:/app/uploaded_files
+
+volumes:
+  vdb_centor_pgvector_data:
