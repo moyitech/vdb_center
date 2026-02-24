@@ -338,19 +338,35 @@ class KBService:
 
         return {"kb_id": kb_id, "item_id": item_id}
 
-    async def get_qa_list(self, project_id: int, limit: int = 200) -> dict:
+    async def get_qa_list(self, project_id: int, page: int = 1, page_size: int = 20) -> dict:
         async with DBSession() as session:
             kb_id = await get_project_qa_kb_id(session, project_id)
             if kb_id is None:
-                return {"kb_id": None, "items": []}
+                return {
+                    "kb_id": None,
+                    "current_page": page,
+                    "page_size": page_size,
+                    "total_pages": 0,
+                    "total_count": 0,
+                    "items": [],
+                }
 
-            items = await get_qa_item_list(
+            items, total_count = await get_qa_item_list(
                 session=session,
                 kb_id=kb_id,
                 project_id=project_id,
-                limit=limit,
+                page=page,
+                page_size=page_size,
             )
-            return {"kb_id": kb_id, "items": items}
+            total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
+            return {
+                "kb_id": kb_id,
+                "current_page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "total_count": total_count,
+                "items": items,
+            }
 
     async def run_kb_ingest_task(
         self,
@@ -512,18 +528,18 @@ class KBService:
 if __name__ == "__main__":
     service = KBService()
     async def main():
-        success, message = await service.create_kb_from_file(
-            "~/Downloads/20250916太原理工大学2025版学生手册（封面＋正文）.pdf",
-            "学生手册",
-            1001,
-        )
-        print(success, message)
+        # success, message = await service.create_kb_from_file(
+        #     "~/Downloads/20250916太原理工大学2025版学生手册（封面＋正文）.pdf",
+        #     "学生手册",
+        #     1001,
+        # )
+        # print(success, message)
 
-        retrieve_result = await service.retrieve_hybrid("换宿舍", 1001, top_k_embedding=10, top_k_bm25=10)
+        retrieve_result = await service.retrieve_hybrid("换宿舍", 1101, top_k_embedding=10, top_k_bm25=10)
         print(retrieve_result)
 
-        kb_list = await service.get_kb_list_for_project(1001)
-        print(kb_list)
+        # kb_list = await service.get_kb_list_for_project(1001)
+        # print(kb_list)
 
         
 

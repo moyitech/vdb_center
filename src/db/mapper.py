@@ -320,11 +320,24 @@ async def get_qa_item_list(
     kb_id: int,
     project_id: int,
     *,
-    limit: int = 200,
-) -> list[dict]:
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[dict], int]:
     """
-    获取 QA 专用 KB 下的 item 列表。
+    获取 QA 专用 KB 下的 item 分页列表。
     """
+    total_stmt = (
+        select(func.count(Item.id))
+        .where(
+            Item.kb_id == kb_id,
+            Item.project_id == project_id,
+            Item.is_deleted == 0,
+        )
+    )
+    total_result = await session.execute(total_stmt)
+    total_count = int(total_result.scalar_one() or 0)
+
+    offset = (page - 1) * page_size
     stmt = (
         select(
             Item.id,
@@ -341,23 +354,27 @@ async def get_qa_item_list(
             Item.is_deleted == 0,
         )
         .order_by(Item.chunk_index.asc())
-        .limit(limit)
+        .offset(offset)
+        .limit(page_size)
     )
 
     result = await session.execute(stmt)
     rows = result.all()
-    return [
-        {
-            "id": row.id,
-            "kb_id": row.kb_id,
-            "chunk_index": row.chunk_index,
-            "question": row.question,
-            "answer": row.answer,
-            "create_time": row.create_time,
-            "update_time": row.update_time,
-        }
-        for row in rows
-    ]
+    return (
+        [
+            {
+                "id": row.id,
+                "kb_id": row.kb_id,
+                "chunk_index": row.chunk_index,
+                "question": row.question,
+                "answer": row.answer,
+                "create_time": row.create_time,
+                "update_time": row.update_time,
+            }
+            for row in rows
+        ],
+        total_count,
+    )
 
 
 async def soft_delete_kb_and_chunks(session: AsyncSession, kb_id: int, project_id: int):
