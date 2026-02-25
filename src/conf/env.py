@@ -15,8 +15,6 @@ class Settings(BaseSettings):
     # REDIS_CONNECTION: str = Field(...)
     LOGURU_LEVEL: str = Field(default="DEBUG")
     DASHSCOPE_API_KEY: str = Field(...)
-    # OSS_ACCESS_KEY_ID: str = Field()
-    # OSS_ACCESS_KEY_SECRET: str = Field()
 
 
 settings = Settings()  # type: ignore

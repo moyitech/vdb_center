@@ -7,6 +7,7 @@ services:
       POSTGRES_DB: vdb_centor
       POSTGRES_USER: pgvector
       POSTGRES_PASSWORD: pgvector
+    # 本地调试时使用
     # ports:
     #   - "${PGVECTOR_PORT:-45132}:5432"
     volumes:
