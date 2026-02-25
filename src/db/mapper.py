@@ -9,9 +9,10 @@ from src.db.models import (
     KB_INGEST_STATUS_VALUES,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.engine import CursorResult
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
-from typing import Callable
+from typing import Any, Callable, cast
 import re
 import jieba
 
@@ -169,7 +170,9 @@ async def soft_delete_items_by_ids(
     if not item_ids:
         return 0
 
-    result = await session.execute(
+    result = cast(
+        CursorResult[Any],
+        await session.execute(
         update(Item)
         .where(
             Item.kb_id == kb_id,
@@ -178,6 +181,7 @@ async def soft_delete_items_by_ids(
             Item.id.in_(item_ids),
         )
         .values(is_deleted=1, update_time=func.now())
+        ),
     )
     return int(result.rowcount or 0)
 
@@ -295,7 +299,9 @@ async def update_qa_item_by_id(
     """
     更新单条 QA item（仅在指定 QA KB 范围内）。
     """
-    result = await session.execute(
+    result = cast(
+        CursorResult[Any],
+        await session.execute(
         update(Item)
         .where(
             Item.id == item_id,
@@ -311,6 +317,7 @@ async def update_qa_item_by_id(
             fts=make_fts(tokens),
             update_time=func.now(),
         )
+        ),
     )
     return int(result.rowcount or 0) > 0
 
