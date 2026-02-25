@@ -352,6 +352,15 @@ wheels = [
 ]
 
 [[package]]
+name = "docx2txt"
+version = "0.9"
+source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
+sdist = { url = "https://pypi.tuna.tsinghua.edu.cn/packages/ea/07/4486a038624e885e227fe79111914c01f55aa70a51920ff1a7f2bd216d10/docx2txt-0.9.tar.gz", hash = "sha256:18013f6229b14909028b19aa7bf4f8f3d6e4632d7b089ab29f7f0a4d1f660e28", size = 3613, upload-time = "2025-03-24T20:59:25.21Z" }
+wheels = [
+    { url = "https://pypi.tuna.tsinghua.edu.cn/packages/d6/51/756e71bec48ece0ecc2a10e921ef2756e197dcb7e478f2b43673b6683902/docx2txt-0.9-py3-none-any.whl", hash = "sha256:e3718c0653fd6f2fcf4b51b02a61452ad1c38a4c163bcf0a6fd9486cd38f529a", size = 4025, upload-time = "2025-03-24T20:59:24.394Z" },
+]
+
+[[package]]
 name = "et-xmlfile"
 version = "2.0.0"
 source = { registry = "https://pypi.tuna.tsinghua.edu.cn/simple" }
@@ -1779,6 +1788,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "asyncpg" },
+    { name = "docx2txt" },
     { name = "fastapi" },
     { name = "greenlet" },
     { name = "jieba" },
@@ -1806,6 +1816,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "asyncpg", specifier = ">=0.31.0" },
+    { name = "docx2txt", specifier = ">=0.9" },
     { name = "fastapi", specifier = ">=0.132.0" },
     { name = "greenlet", specifier = ">=3.3.2" },
     { name = "jieba", specifier = ">=0.42.1" },

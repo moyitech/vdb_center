@@ -30,6 +30,8 @@ def read_qa_excel(file_path: str) -> list[dict[str, str]]:
     wb = load_workbook(file_path, read_only=True, data_only=True)
     try:
         ws = wb.active
+        if ws is None:
+            raise ValueError("Excel has no active worksheet.")
         row_iter = ws.iter_rows(values_only=True)
         header = next(row_iter, None)
         if header is None:

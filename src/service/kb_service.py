@@ -71,9 +71,6 @@ class KBService:
         elif suffix == ".docx":
             chunks, _ = read_docx(file_path)
             return [{"text": chunk} for chunk in chunks]
-        elif suffix == ".csv":
-            chunks, _ = read_csv(file_path)
-            return [{"text": chunk} for chunk in chunks]
         elif suffix in {".xlsx", ".xlsm"}:
             records = read_qa_excel(file_path)
             return [
@@ -85,7 +82,7 @@ class KBService:
                 for record in records
             ]
         else:
-            raise ValueError("Unsupported file type. Only PDF, DOCX, CSV and XLSX are supported.")
+            raise ValueError("Unsupported file type. Only PDF, DOCX, XLSX and XLSM are supported.")
     
     async def _iter_processed_chunks(
         self,

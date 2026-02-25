@@ -27,7 +27,7 @@ services:
       pgvector:
         condition: service_healthy
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT:-8001}:8001"
     environment:
       DEBUG_MODE: "${DEBUG_MODE:-false}"
       BIZ_DB_CONNECTION: "postgresql+psycopg://pgvector:pgvector@pgvector:5432/vdb_centor"

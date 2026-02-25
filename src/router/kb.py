@@ -35,6 +35,7 @@ from src.model.kb_model import (
 )
 
 router = APIRouter(prefix="/kb", tags=["kb"])
+SUPPORTED_UPLOAD_SUFFIXES = {".pdf", ".docx", ".xlsx", ".xlsm"}
 
 
 @router.post("/upload", response_model=UploadResponse)
@@ -44,9 +45,19 @@ async def upload_file(
     file: UploadFile = File(...),
 ) -> UploadResponse:
     kb_service = KBService()
-    upload_suffix = Path(file.filename or "").suffix.lower()
-    if upload_suffix == ".xls":
-        return APIErrorResponse(error="Legacy .xls is not supported. Please upload .xlsx/.xlsm.")
+
+    # 上传入口先校验后缀，避免后续创建KB后才在读取阶段失败
+    if not file.filename:
+        return APIErrorResponse(error="Uploaded file must have a filename.")
+    upload_suffix = Path(file.filename).suffix.lower()
+    if upload_suffix not in SUPPORTED_UPLOAD_SUFFIXES:
+        display_suffix = upload_suffix if upload_suffix else "(none)"
+        return APIErrorResponse(
+            error=(
+                f"Unsupported file type: {display_suffix}. "
+                "Only .pdf, .docx, .xlsx and .xlsm are supported."
+            )
+        )
 
     try:
         file_path = await kb_service.save_file_to_storage(file, project_id=project_id, kb_name="uploaded_kb")
@@ -58,10 +69,12 @@ async def upload_file(
         dedup_origin_text = False
 
         if upload_suffix in {".xlsx", ".xlsm"}:
+            # 判断是否为QA专用KB（.xlsx/.xlsm），如果是则使用或创建项目级QA KB，并且入库时追加到现有KB中，同时启用原始文本去重
             kb_id = await kb_service.get_or_create_project_qa_kb(project_id=project_id)
             append_to_existing = True
             dedup_origin_text = True
         else:
+            # 对于非QA专用KB（如pdf），正常创建一个新的KB记录
             kb_id = await kb_service.create_kb_ingest_task(
                 kb_name=file_path.name,
                 project_id=project_id,
