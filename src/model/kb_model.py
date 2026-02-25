@@ -220,13 +220,13 @@ class RetrieveHybridRequest(BaseModel):
     query: str = Field(..., min_length=1, description="检索问题")
     top_k_embedding: int = Field(
         default=10,
-        ge=1,
+        ge=0,
         le=100,
         description="向量检索返回条数",
     )
     top_k_bm25: int = Field(
         default=10,
-        ge=1,
+        ge=0,
         le=100,
         description="BM25检索返回条数",
     )

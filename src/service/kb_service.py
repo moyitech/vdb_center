@@ -498,8 +498,16 @@ class KBService:
         
         async with DBSession() as session:
             async with session.begin():
-                dense_results = await retrieve_dense(session, query_vector, project_id, top_k_embedding)
-                bm25_results = await retrieve_bm25(session, query, project_id, top_k_bm25)
+                
+                if top_k_embedding > 0:
+                    dense_results = await retrieve_dense(session, query_vector, project_id, top_k_embedding)
+                else:
+                    dense_results = []
+
+                if top_k_bm25 > 0:
+                    bm25_results = await retrieve_bm25(session, query, project_id, top_k_bm25)
+                else:
+                    bm25_results = []
 
         remove_dups_ids = {r["id"] for r in dense_results}
 
