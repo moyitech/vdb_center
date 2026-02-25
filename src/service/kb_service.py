@@ -13,6 +13,7 @@ from src.db.mapper import (
     get_existing_origin_texts,
     update_qa_item_by_id,
     get_qa_item_list,
+    soft_delete_kb_and_chunks,
     get_kb_list_for_project as mapper_get_kb_list_for_project,
     get_kb_task_status as mapper_get_kb_task_status,
 )
@@ -483,6 +484,22 @@ class KBService:
         """
         async with DBSession() as session:
             return await mapper_get_kb_task_status(session, project_id, kb_id)
+
+    async def delete_kb(self, project_id: int, kb_id: int) -> dict:
+        """
+        删除指定项目下的 KB（软删除）。
+        默认禁止删除 QA 专用 KB 和 ingesting 状态 KB。
+        """
+        async with DBSession() as session:
+            result = await soft_delete_kb_and_chunks(
+                session=session,
+                kb_id=kb_id,
+                project_id=project_id,
+                forbid_qa_kb=True,
+                forbid_ingesting=True,
+            )
+            await session.commit()
+            return result
 
     async def retrieve_hybrid(
         self,

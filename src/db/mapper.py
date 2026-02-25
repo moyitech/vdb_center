@@ -17,6 +17,13 @@ import re
 import jieba
 
 
+KB_DELETE_REASON_DELETED = "deleted"
+KB_DELETE_REASON_NOT_FOUND = "not_found"
+KB_DELETE_REASON_ALREADY_DELETED = "already_deleted"
+KB_DELETE_REASON_QA_KB_FORBIDDEN = "qa_kb_forbidden"
+KB_DELETE_REASON_INGESTING_FORBIDDEN = "ingesting_forbidden"
+
+
 def cut_cn(text: str) -> list[str]:
     _re_ws = re.compile(r"\s+")
     _re_keep = re.compile(r"[0-9A-Za-z\u4e00-\u9fff]+")
@@ -384,24 +391,91 @@ async def get_qa_item_list(
     )
 
 
-async def soft_delete_kb_and_chunks(session: AsyncSession, kb_id: int, project_id: int):
+async def soft_delete_kb_and_chunks(
+    session: AsyncSession,
+    kb_id: int,
+    project_id: int,
+    *,
+    forbid_qa_kb: bool = True,
+    forbid_ingesting: bool = True,
+) -> dict[str, int | bool | str]:
     """
-    软删除知识库及其所有文本块。实际操作是将is_deleted字段设置为1。
+    软删除知识库及其所有文本块，并返回删除结果。
+    - 默认禁止删除 QA 专用 KB（qa_items=true）
+    - 默认禁止删除 ingesting 状态 KB
     """
-    await session.execute(
-        update(KnowledgeBase)
+    base_result: dict[str, int | bool | str] = {
+        "kb_id": kb_id,
+        "project_id": project_id,
+        "kb_deleted": False,
+        "item_deleted_count": 0,
+        "reason": KB_DELETE_REASON_NOT_FOUND,
+    }
+
+    kb_stmt = (
+        select(
+            KnowledgeBase.id,
+            KnowledgeBase.qa_items,
+            KnowledgeBase.ingest_status,
+            KnowledgeBase.is_deleted,
+        )
         .where(
             KnowledgeBase.id == kb_id,
             KnowledgeBase.project_id == project_id,
-            KnowledgeBase.is_deleted == 0,
         )
-        .values(is_deleted=1, update_time=func.now())
+        .with_for_update()
     )
-    await session.execute(
-        update(Item)
-        .where(Item.kb_id == kb_id, Item.project_id == project_id, Item.is_deleted == 0)
-        .values(is_deleted=1, update_time=func.now())
+    kb_result = await session.execute(kb_stmt)
+    kb_row = kb_result.one_or_none()
+    if kb_row is None:
+        return base_result
+
+    if kb_row.is_deleted != 0:
+        base_result["reason"] = KB_DELETE_REASON_ALREADY_DELETED
+        return base_result
+
+    if forbid_qa_kb and bool(kb_row.qa_items):
+        base_result["reason"] = KB_DELETE_REASON_QA_KB_FORBIDDEN
+        return base_result
+
+    if forbid_ingesting and kb_row.ingest_status == KB_INGEST_STATUS_INGESTING:
+        base_result["reason"] = KB_DELETE_REASON_INGESTING_FORBIDDEN
+        return base_result
+
+    kb_update_result = cast(
+        CursorResult[Any],
+        await session.execute(
+            update(KnowledgeBase)
+            .where(
+                KnowledgeBase.id == kb_id,
+                KnowledgeBase.project_id == project_id,
+                KnowledgeBase.is_deleted == 0,
+            )
+            .values(is_deleted=1, update_time=func.now())
+        ),
     )
+    item_update_result = cast(
+        CursorResult[Any],
+        await session.execute(
+            update(Item)
+            .where(
+                Item.kb_id == kb_id,
+                Item.project_id == project_id,
+                Item.is_deleted == 0,
+            )
+            .values(is_deleted=1, update_time=func.now())
+        ),
+    )
+
+    kb_deleted = int(kb_update_result.rowcount or 0) > 0
+    base_result["kb_deleted"] = kb_deleted
+    base_result["item_deleted_count"] = int(item_update_result.rowcount or 0)
+    base_result["reason"] = (
+        KB_DELETE_REASON_DELETED
+        if kb_deleted
+        else KB_DELETE_REASON_ALREADY_DELETED
+    )
+    return base_result
 
 
 async def soft_delete_some_chunks(

@@ -4,6 +4,10 @@ from pathlib import Path
 from src.service.kb_service import KBService
 from src.model.kb_model import (
     APIErrorResponse,
+    KBDeleteData,
+    KBDeleteRequest,
+    KBDeleteResponse,
+    KBDeleteSuccessResponse,
     KbIdPath,
     KBListItem,
     KBListResponse,
@@ -121,6 +125,23 @@ async def get_kb_ingest_task_status(project_id: ProjectIdQuery, kb_id: KbIdPath)
             return APIErrorResponse(error="Task not found")
         return KBTaskStatusSuccessResponse(
             data=KBTaskStatusData.model_validate(task_status)
+        )
+    except Exception as e:
+        return APIErrorResponse(error=str(e))
+
+
+@router.post("/delete", response_model=KBDeleteResponse)
+async def delete_kb(
+    payload: KBDeleteRequest,
+) -> KBDeleteResponse:
+    kb_service = KBService()
+    try:
+        data = await kb_service.delete_kb(
+            project_id=payload.project_id,
+            kb_id=payload.kb_id,
+        )
+        return KBDeleteSuccessResponse(
+            data=KBDeleteData.model_validate(data)
         )
     except Exception as e:
         return APIErrorResponse(error=str(e))

@@ -91,6 +91,42 @@ class KBTaskStatusSuccessResponse(BaseModel):
 KBTaskStatusResponse = KBTaskStatusSuccessResponse | APIErrorResponse
 
 
+KBDeleteReason = Literal[
+    "deleted",
+    "not_found",
+    "already_deleted",
+    "qa_kb_forbidden",
+    "ingesting_forbidden",
+]
+
+
+class KBDeleteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: int = Field(..., gt=0, description="项目ID")
+    kb_id: int = Field(..., gt=0, description="待删除KB ID")
+
+
+class KBDeleteData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kb_id: int = Field(..., gt=0, description="KB ID")
+    project_id: int = Field(..., gt=0, description="项目ID")
+    kb_deleted: bool = Field(..., description="是否执行了KB删除")
+    item_deleted_count: int = Field(..., ge=0, description="实际软删除的item数量")
+    reason: KBDeleteReason = Field(..., description="删除结果原因")
+
+
+class KBDeleteSuccessResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    success: Literal[True] = Field(default=True, description="是否成功")
+    data: KBDeleteData = Field(..., description="删除KB结果")
+
+
+KBDeleteResponse = KBDeleteSuccessResponse | APIErrorResponse
+
+
 class QACreateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
