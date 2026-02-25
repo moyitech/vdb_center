@@ -30,6 +30,10 @@ from src.model.kb_model import (
     QAUpdateItemData,
     QAUpdateItemResponse,
     QAUpdateItemSuccessResponse,
+    RetrieveHybridData,
+    RetrieveHybridRequest,
+    RetrieveHybridResponse,
+    RetrieveHybridSuccessResponse,
     UploadResponse,
     UploadSuccessResponse,
 )
@@ -203,5 +207,22 @@ async def get_qa_list(
             page_size=page_size,
         )
         return QAListSuccessResponse(data=QAListData.model_validate(data))
+    except Exception as e:
+        return APIErrorResponse(error=str(e))
+
+
+@router.post("/retrieve/hybrid", response_model=RetrieveHybridResponse)
+async def retrieve_hybrid(payload: RetrieveHybridRequest) -> RetrieveHybridResponse:
+    kb_service = KBService()
+    try:
+        data = await kb_service.retrieve_hybrid(
+            query=payload.query,
+            project_id=payload.project_id,
+            top_k_embedding=payload.top_k_embedding,
+            top_k_bm25=payload.top_k_bm25,
+        )
+        return RetrieveHybridSuccessResponse(
+            data=RetrieveHybridData.model_validate(data)
+        )
     except Exception as e:
         return APIErrorResponse(error=str(e))

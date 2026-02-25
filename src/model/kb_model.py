@@ -211,3 +211,48 @@ class QAListSuccessResponse(BaseModel):
 
 
 QAListResponse = QAListSuccessResponse | APIErrorResponse
+
+
+class RetrieveHybridRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: int = Field(..., gt=0, description="项目ID")
+    query: str = Field(..., min_length=1, description="检索问题")
+    top_k_embedding: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="向量检索返回条数",
+    )
+    top_k_bm25: int = Field(
+        default=10,
+        ge=1,
+        le=100,
+        description="BM25检索返回条数",
+    )
+
+
+class RetrieveItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: int = Field(..., gt=0, description="item ID")
+    text: str = Field(..., description="文本内容")
+    score: float = Field(..., description="相似度或相关度得分")
+
+
+class RetrieveHybridData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    dense: list[RetrieveItem] = Field(default_factory=list, description="向量检索结果")
+    bm25: list[RetrieveItem] = Field(default_factory=list, description="BM25检索结果")
+    merged_results: list[RetrieveItem] = Field(default_factory=list, description="合并去重结果")
+
+
+class RetrieveHybridSuccessResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    success: Literal[True] = Field(default=True, description="是否成功")
+    data: RetrieveHybridData = Field(..., description="混合检索结果")
+
+
+RetrieveHybridResponse = RetrieveHybridSuccessResponse | APIErrorResponse
