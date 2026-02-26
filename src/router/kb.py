@@ -237,7 +237,8 @@ async def retrieve_hybrid(payload: RetrieveHybridRequest) -> RetrieveHybridRespo
     kb_service = KBService()
     try:
         data = await kb_service.retrieve_hybrid(
-            query=payload.query,
+            dense_query=payload.dense_query,
+            bm25_query=payload.bm25_query,
             project_id=payload.project_id,
             top_k_embedding=payload.top_k_embedding,
             top_k_bm25=payload.top_k_bm25,

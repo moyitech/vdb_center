@@ -253,7 +253,14 @@ class RetrieveHybridRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_id: int = Field(..., gt=0, description="项目ID")
-    query: str = Field(..., min_length=1, description="检索问题")
+    dense_query: str | None = Field(
+        default=None,
+        description="向量检索查询；为空时不执行 dense 召回",
+    )
+    bm25_query: str | None = Field(
+        default=None,
+        description="BM25 检索查询；为空时不执行 BM25 召回",
+    )
     top_k_embedding: int = Field(
         default=10,
         ge=0,

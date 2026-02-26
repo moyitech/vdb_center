@@ -503,7 +503,8 @@ class KBService:
 
     async def retrieve_hybrid(
         self,
-        query: str,
+        dense_query: str | None,
+        bm25_query: str | None,
         project_id: int,
         top_k_embedding: int = 10,
         top_k_bm25: int = 10
@@ -511,18 +512,43 @@ class KBService:
         """
         混合检索：结合BM25和向量相似度两种方法，返回与查询最相关的文本块。
         """
-        query_vector = (await get_text_embedding([query]))[0]
+        normalized_dense_query = (dense_query or "").strip()
+        normalized_bm25_query = (bm25_query or "").strip()
+
+        effective_top_k_embedding = top_k_embedding if normalized_dense_query else 0
+        effective_top_k_bm25 = top_k_bm25 if normalized_bm25_query else 0
+
+        if effective_top_k_embedding == 0 and effective_top_k_bm25 == 0:
+            return {
+                "dense": [],
+                "bm25": [],
+                "merged_results": [],
+            }
+
+        query_vector: list[float] | None = None
+        if effective_top_k_embedding > 0:
+            query_vector = (await get_text_embedding([normalized_dense_query]))[0]
         
         async with DBSession() as session:
             async with session.begin():
                 
-                if top_k_embedding > 0:
-                    dense_results = await retrieve_dense(session, query_vector, project_id, top_k_embedding)
+                if effective_top_k_embedding > 0 and query_vector is not None:
+                    dense_results = await retrieve_dense(
+                        session,
+                        query_vector,
+                        project_id,
+                        effective_top_k_embedding,
+                    )
                 else:
                     dense_results = []
 
-                if top_k_bm25 > 0:
-                    bm25_results = await retrieve_bm25(session, query, project_id, top_k_bm25)
+                if effective_top_k_bm25 > 0:
+                    bm25_results = await retrieve_bm25(
+                        session,
+                        normalized_bm25_query,
+                        project_id,
+                        effective_top_k_bm25,
+                    )
                 else:
                     bm25_results = []
 
@@ -557,7 +583,13 @@ if __name__ == "__main__":
         # )
         # print(success, message)
 
-        retrieve_result = await service.retrieve_hybrid("换宿舍", 1101, top_k_embedding=10, top_k_bm25=10)
+        retrieve_result = await service.retrieve_hybrid(
+            dense_query="换宿舍",
+            bm25_query="换宿舍",
+            project_id=1101,
+            top_k_embedding=10,
+            top_k_bm25=10,
+        )
         print(retrieve_result)
 
         # kb_list = await service.get_kb_list_for_project(1001)
