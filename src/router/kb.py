@@ -39,6 +39,7 @@ from src.model.kb_model import (
     RetrieveHybridRequest,
     RetrieveHybridResponse,
     RetrieveHybridSuccessResponse,
+    SourceKeywordQuery,
     SourceExistsData,
     SourceExistsResponse,
     SourceExistsSuccessResponse,
@@ -135,6 +136,27 @@ async def get_project_kb_list(project_id: ProjectIdQuery) -> KBListResponse:
     kb_service = KBService()
     try:
         kb_list = await kb_service.get_kb_list_for_project(project_id)
+        return KBListSuccessResponse(
+            data=[KBListItem.model_validate(item) for item in kb_list]
+        )
+    except Exception as e:
+        return APIErrorResponse(error=str(e))
+
+
+@router.get("/source/search", response_model=KBListResponse)
+async def search_kb_by_source(
+    project_id: ProjectIdQuery,
+    source_keyword: SourceKeywordQuery,
+) -> KBListResponse:
+    kb_service = KBService()
+    try:
+        normalized_keyword = source_keyword.strip()
+        if not normalized_keyword:
+            return APIErrorResponse(error="source_keyword 不能为空")
+        kb_list = await kb_service.search_kb_list_by_source(
+            project_id=project_id,
+            source_keyword=normalized_keyword,
+        )
         return KBListSuccessResponse(
             data=[KBListItem.model_validate(item) for item in kb_list]
         )

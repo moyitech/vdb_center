@@ -17,6 +17,7 @@ from src.db.mapper import (
     get_qa_item_list,
     soft_delete_kb_and_chunks,
     get_kb_list_for_project as mapper_get_kb_list_for_project,
+    search_kb_list_by_source as mapper_search_kb_list_by_source,
     get_kb_task_status as mapper_get_kb_task_status,
 )
 from src.db.models import (
@@ -40,6 +41,24 @@ class KBService:
     def __init__(self, embedding_batch_size: int = 10, db_upsert_batch_size: int = 200):
         self.embedding_batch_size = embedding_batch_size
         self.db_upsert_batch_size = db_upsert_batch_size
+
+    def _build_task_status(
+        self,
+        ingest_status: str,
+        success_count: int | None = None,
+        failed_count: int | None = None,
+    ) -> str:
+        if ingest_status == KB_INGEST_STATUS_INGESTING:
+            return "进行中"
+        if ingest_status == KB_INGEST_STATUS_FAILED:
+            return "失败"
+        if ingest_status == KB_INGEST_STATUS_SUCCEEDED:
+            success = int(success_count or 0)
+            failed = int(failed_count or 0)
+            if success > 0 and failed > 0:
+                return "部分成功"
+            return "成功"
+        return "未知"
 
 
     def _construct_file_name(self, project_id: int, kb_name: str, file_name: str) -> str:
@@ -565,7 +584,15 @@ class KBService:
         查询入库任务状态。
         """
         async with DBSession() as session:
-            return await mapper_get_kb_task_status(session, project_id, kb_id)
+            status = await mapper_get_kb_task_status(session, project_id, kb_id)
+            if status is None:
+                return None
+            status["task_status"] = self._build_task_status(
+                ingest_status=status.get("ingest_status", ""),
+                success_count=status.get("success_count"),
+                failed_count=status.get("failed_count"),
+            )
+            return status
 
     async def delete_kb(self, project_id: int, kb_id: int) -> dict:
         """
@@ -652,7 +679,32 @@ class KBService:
         获取指定项目下的知识库列表。
         """
         async with DBSession() as session:
-            return await mapper_get_kb_list_for_project(session, project_id)
+            kb_list = await mapper_get_kb_list_for_project(session, project_id)
+            for item in kb_list:
+                item["task_status"] = self._build_task_status(
+                    ingest_status=item.get("ingest_status", ""),
+                    success_count=item.get("success_count"),
+                    failed_count=item.get("failed_count"),
+                )
+                item.pop("success_count", None)
+                item.pop("failed_count", None)
+            return kb_list
+
+    async def search_kb_list_by_source(
+        self,
+        project_id: int,
+        source_keyword: str,
+    ) -> list[dict]:
+        normalized_keyword = source_keyword.strip()
+        if not normalized_keyword:
+            return []
+
+        async with DBSession() as session:
+            return await mapper_search_kb_list_by_source(
+                session=session,
+                project_id=project_id,
+                source_keyword=normalized_keyword,
+            )
 
 
 if __name__ == "__main__":

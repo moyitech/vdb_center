@@ -651,6 +651,8 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
             KnowledgeBase.date,
             KnowledgeBase.qa_items,
             KnowledgeBase.ingest_status,
+            KnowledgeBase.success_count,
+            KnowledgeBase.failed_count,
             KnowledgeBase.create_time,
             KnowledgeBase.update_time,
             func.count(Item.id).label("chunk_count")
@@ -659,6 +661,76 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
             KnowledgeBase.project_id == project_id,
             KnowledgeBase.is_deleted == 0,
             KnowledgeBase.qa_items.is_(False),
+        )
+        .outerjoin(
+            Item,
+            (Item.kb_id == KnowledgeBase.id)
+            & (Item.project_id == project_id)
+            & (Item.is_deleted == 0),
+        )
+        .group_by(
+            KnowledgeBase.id,
+            KnowledgeBase.file_name,
+            KnowledgeBase.source,
+            KnowledgeBase.date,
+            KnowledgeBase.qa_items,
+            KnowledgeBase.ingest_status,
+            KnowledgeBase.success_count,
+            KnowledgeBase.failed_count,
+            KnowledgeBase.create_time,
+            KnowledgeBase.update_time,
+        )
+    )
+
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    return [
+        {
+            "id": row.id,
+            "file_name": row.file_name,
+            "source": row.source,
+            "date": row.date,
+            "qa_items": row.qa_items,
+            "ingest_status": row.ingest_status,
+            "success_count": row.success_count,
+            "failed_count": row.failed_count,
+            "chunk_count": row.chunk_count,
+            "create_time": row.create_time,
+            "update_time": row.update_time,
+        }
+        for row in rows
+    ]
+
+
+async def search_kb_list_by_source(
+    session: AsyncSession,
+    project_id: int,
+    source_keyword: str,
+):
+    normalized_keyword = source_keyword.strip()
+    if not normalized_keyword:
+        return []
+
+    like_pattern = f"%{normalized_keyword}%"
+    stmt = (
+        select(
+            KnowledgeBase.id,
+            KnowledgeBase.file_name,
+            KnowledgeBase.source,
+            KnowledgeBase.date,
+            KnowledgeBase.qa_items,
+            KnowledgeBase.ingest_status,
+            KnowledgeBase.create_time,
+            KnowledgeBase.update_time,
+            func.count(Item.id).label("chunk_count"),
+        )
+        .where(
+            KnowledgeBase.project_id == project_id,
+            KnowledgeBase.is_deleted == 0,
+            KnowledgeBase.qa_items.is_(False),
+            KnowledgeBase.source.is_not(None),
+            KnowledgeBase.source.ilike(like_pattern),
         )
         .outerjoin(
             Item,

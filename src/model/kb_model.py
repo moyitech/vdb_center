@@ -11,6 +11,7 @@ ProjectIdQuery = Annotated[int, Query(..., gt=0, description="项目ID")]
 KbIdPath = Annotated[int, Path(..., gt=0, description="知识库ID")]
 ItemIdPath = Annotated[int, Path(..., gt=0, description="QA条目ID")]
 SourceQuery = Annotated[str, Query(..., min_length=1, description="来源")]
+SourceKeywordQuery = Annotated[str, Query(..., min_length=1, description="来源关键词")]
 QAPageQuery = Annotated[
     int,
     Query(ge=1, description="页码（从1开始）"),
@@ -71,6 +72,7 @@ class KBListItem(BaseModel):
     date: DateType | None = Field(default=None, description="信息产生日期")
     qa_items: bool = Field(..., description="是否QA专用KB")
     ingest_status: IngestStatus = Field(..., description="入库状态")
+    task_status: str | None = Field(default=None, description="任务状态（中文）")
     chunk_count: int = Field(..., ge=0, description="当前有效chunk数量")
     create_time: datetime = Field(..., description="创建时间")
     update_time: datetime = Field(..., description="更新时间")
@@ -94,6 +96,7 @@ class KBTaskStatusData(BaseModel):
     file_name: str | None = Field(default=None, description="KB文件名")
     qa_items: bool = Field(..., description="是否QA专用KB")
     ingest_status: IngestStatus = Field(..., description="入库状态")
+    task_status: str | None = Field(default=None, description="任务状态（中文）")
     success_count: int = Field(..., ge=0, description="最近一次上传成功写入数量")
     failed_count: int = Field(..., ge=0, description="最近一次上传未写入数量")
     chunk_count: int = Field(..., ge=0, description="当前有效chunk数量")
