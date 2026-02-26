@@ -1,7 +1,8 @@
 from fastapi.routing import APIRouter
-from fastapi import UploadFile, File, BackgroundTasks
+from fastapi import UploadFile, File, BackgroundTasks, Form
 from pathlib import Path
-from src.service.kb_service import KBService
+from datetime import date
+from src.service.kb_service import KBService, PRESET_QA_SOURCE
 from src.model.kb_model import (
     APIErrorResponse,
     KBDeleteData,
@@ -38,18 +39,24 @@ from src.model.kb_model import (
     RetrieveHybridRequest,
     RetrieveHybridResponse,
     RetrieveHybridSuccessResponse,
+    SourceExistsData,
+    SourceExistsResponse,
+    SourceExistsSuccessResponse,
+    SourceQuery,
     UploadResponse,
     UploadSuccessResponse,
 )
 
 router = APIRouter(prefix="/kb", tags=["kb"])
-SUPPORTED_UPLOAD_SUFFIXES = {".pdf", ".docx", ".xlsx", ".xlsm"}
+SUPPORTED_UPLOAD_SUFFIXES = {".pdf", ".docx", ".txt", ".xlsx", ".xlsm"}
 
 
 @router.post("/upload", response_model=UploadResponse)
 async def upload_file(
     background_tasks: BackgroundTasks,
     project_id: ProjectIdQuery,
+    source: str | None = Form(default=None, description="来源（可选）"),
+    info_date: date | None = Form(default=None, alias="date", description="信息产生日期（YYYY-MM-DD）"),
     file: UploadFile = File(...),
 ) -> UploadResponse:
     kb_service = KBService()
@@ -63,9 +70,30 @@ async def upload_file(
         return APIErrorResponse(
             error=(
                 f"Unsupported file type: {display_suffix}. "
-                "Only .pdf, .docx, .xlsx and .xlsm are supported."
+                "Only .pdf, .docx, .txt, .xlsx and .xlsm are supported."
             )
         )
+
+    try:
+        append_to_existing = False
+        dedup_origin_text = False
+
+        if upload_suffix in {".xlsx", ".xlsm"}:
+            normalized_source = PRESET_QA_SOURCE
+            # 判断是否为QA专用KB（.xlsx/.xlsm），如果是则使用或创建项目级QA KB，并且入库时追加到现有KB中，同时启用原始文本去重
+            append_to_existing = True
+            dedup_origin_text = True
+        else:
+            normalized_source = (source or "").strip() or Path(file.filename).name
+            if await kb_service.exists_non_qa_source(
+                project_id=project_id,
+                source=normalized_source,
+            ):
+                return APIErrorResponse(
+                    error=f"该来源在当前项目中已存在：{normalized_source}"
+                )
+    except Exception as e:
+        return APIErrorResponse(error=str(e))
 
     try:
         file_path = await kb_service.save_file_to_storage(file, project_id=project_id, kb_name="uploaded_kb")
@@ -73,19 +101,15 @@ async def upload_file(
         return APIErrorResponse(error=str(e))
 
     try:
-        append_to_existing = False
-        dedup_origin_text = False
-
         if upload_suffix in {".xlsx", ".xlsm"}:
-            # 判断是否为QA专用KB（.xlsx/.xlsm），如果是则使用或创建项目级QA KB，并且入库时追加到现有KB中，同时启用原始文本去重
             kb_id = await kb_service.get_or_create_project_qa_kb(project_id=project_id)
-            append_to_existing = True
-            dedup_origin_text = True
         else:
-            # 对于非QA专用KB（如pdf），正常创建一个新的KB记录
+            # 对于非QA专用KB（如pdf/txt/docx），正常创建一个新的KB记录
             kb_id = await kb_service.create_kb_ingest_task(
                 kb_name=file_path.name,
                 project_id=project_id,
+                source=normalized_source,
+                info_date=info_date,
             )
 
         background_tasks.add_task(
@@ -95,6 +119,8 @@ async def upload_file(
             project_id,
             append_to_existing,
             dedup_origin_text,
+            normalized_source,
+            info_date,
         )
         return UploadSuccessResponse(
             kb_id=kb_id,
@@ -111,6 +137,30 @@ async def get_project_kb_list(project_id: ProjectIdQuery) -> KBListResponse:
         kb_list = await kb_service.get_kb_list_for_project(project_id)
         return KBListSuccessResponse(
             data=[KBListItem.model_validate(item) for item in kb_list]
+        )
+    except Exception as e:
+        return APIErrorResponse(error=str(e))
+
+
+@router.get("/source/exists", response_model=SourceExistsResponse)
+async def check_source_exists(
+    project_id: ProjectIdQuery,
+    source: SourceQuery,
+) -> SourceExistsResponse:
+    kb_service = KBService()
+    try:
+        normalized_source = source.strip()
+        if not normalized_source:
+            return APIErrorResponse(error="source 不能为空")
+        exists = await kb_service.exists_non_qa_source(
+            project_id=project_id,
+            source=normalized_source,
+        )
+        return SourceExistsSuccessResponse(
+            data=SourceExistsData(
+                source=normalized_source,
+                exists=exists,
+            )
         )
     except Exception as e:
         return APIErrorResponse(error=str(e))

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, date as DateType
 from typing import Annotated, Literal
 
 from fastapi import Path, Query
@@ -10,6 +10,7 @@ IngestStatus = Literal["ingesting", "succeeded", "failed"]
 ProjectIdQuery = Annotated[int, Query(..., gt=0, description="项目ID")]
 KbIdPath = Annotated[int, Path(..., gt=0, description="知识库ID")]
 ItemIdPath = Annotated[int, Path(..., gt=0, description="QA条目ID")]
+SourceQuery = Annotated[str, Query(..., min_length=1, description="来源")]
 QAPageQuery = Annotated[
     int,
     Query(ge=1, description="页码（从1开始）"),
@@ -44,11 +45,30 @@ class UploadSuccessResponse(BaseModel):
 UploadResponse = UploadSuccessResponse | APIErrorResponse
 
 
+class SourceExistsData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source: str = Field(..., min_length=1, description="来源")
+    exists: bool = Field(..., description="是否已存在")
+
+
+class SourceExistsSuccessResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    success: Literal[True] = Field(default=True, description="是否成功")
+    data: SourceExistsData = Field(..., description="来源存在性检查结果")
+
+
+SourceExistsResponse = SourceExistsSuccessResponse | APIErrorResponse
+
+
 class KBListItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: int = Field(..., gt=0, description="KB ID")
     file_name: str | None = Field(default=None, description="KB文件名")
+    source: str | None = Field(default=None, description="来源文件名或URL")
+    date: DateType | None = Field(default=None, description="信息产生日期")
     qa_items: bool = Field(..., description="是否QA专用KB")
     ingest_status: IngestStatus = Field(..., description="入库状态")
     chunk_count: int = Field(..., ge=0, description="当前有效chunk数量")
@@ -222,6 +242,8 @@ class QAListItem(BaseModel):
     id: int = Field(..., gt=0, description="item ID")
     kb_id: int = Field(..., gt=0, description="所属KB ID")
     chunk_index: int = Field(..., ge=0, description="chunk序号")
+    source: str | None = Field(default=None, description="来源文件名或URL")
+    date: DateType | None = Field(default=None, description="信息产生日期")
     question: str | None = Field(default=None, description="问题")
     answer: str | None = Field(default=None, description="答案")
     create_time: datetime = Field(..., description="创建时间")
@@ -280,6 +302,8 @@ class RetrieveItem(BaseModel):
 
     id: int = Field(..., gt=0, description="item ID")
     text: str = Field(..., description="文本内容")
+    source: str | None = Field(default=None, description="来源文件名或URL")
+    date: DateType | None = Field(default=None, description="信息产生日期")
     score: float = Field(..., description="相似度或相关度得分")
 
 

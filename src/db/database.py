@@ -37,7 +37,7 @@ with sync_engine.begin() as conn:
     conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
 Base.metadata.create_all(bind=sync_engine)  # type: ignore
 
-# 兼容已存在库的最小迁移：补齐 qa_items / question / answer 字段与约束
+# 兼容已存在库的最小迁移：补齐 qa_items / question / answer / source / date 字段与约束
 with sync_engine.begin() as conn:
     conn.execute(
         text(
@@ -54,6 +54,18 @@ with sync_engine.begin() as conn:
     )
     conn.execute(
         text(
+            "ALTER TABLE knowledge_base "
+            "ADD COLUMN IF NOT EXISTS source TEXT"
+        )
+    )
+    conn.execute(
+        text(
+            "ALTER TABLE knowledge_base "
+            "ADD COLUMN IF NOT EXISTS date DATE"
+        )
+    )
+    conn.execute(
+        text(
             "ALTER TABLE item "
             "ADD COLUMN IF NOT EXISTS question TEXT"
         )
@@ -62,6 +74,18 @@ with sync_engine.begin() as conn:
         text(
             "ALTER TABLE item "
             "ADD COLUMN IF NOT EXISTS answer TEXT"
+        )
+    )
+    conn.execute(
+        text(
+            "ALTER TABLE item "
+            "ADD COLUMN IF NOT EXISTS source TEXT"
+        )
+    )
+    conn.execute(
+        text(
+            "ALTER TABLE item "
+            "ADD COLUMN IF NOT EXISTS date DATE"
         )
     )
     conn.execute(

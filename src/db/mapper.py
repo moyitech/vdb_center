@@ -13,6 +13,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
 from typing import Any, Callable, cast
+from datetime import date
 import re
 import jieba
 
@@ -64,6 +65,8 @@ async def create_kb(
     file_name: str,
     project_id: int,
     *,
+    source: str | None = None,
+    date: date | None = None,
     qa_items: bool = False,
     ingest_status: str = KB_INGEST_STATUS_INGESTING,
 ) -> int:
@@ -75,6 +78,8 @@ async def create_kb(
 
     kb = KnowledgeBase(
         file_name=file_name,
+        source=source,
+        date=date,
         project_id=project_id,
         ingest_status=ingest_status,
         qa_items=qa_items,
@@ -100,6 +105,29 @@ async def get_project_qa_kb_id(session: AsyncSession, project_id: int) -> int | 
     )
     result = await session.execute(stmt)
     return result.scalar_one_or_none()
+
+
+async def exists_non_qa_source(
+    session: AsyncSession,
+    project_id: int,
+    source: str,
+) -> bool:
+    normalized_source = source.strip()
+    if not normalized_source:
+        return False
+
+    stmt = (
+        select(KnowledgeBase.id)
+        .where(
+            KnowledgeBase.project_id == project_id,
+            KnowledgeBase.qa_items.is_(False),
+            KnowledgeBase.is_deleted == 0,
+            KnowledgeBase.source == normalized_source,
+        )
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    return result.scalar_one_or_none() is not None
 
 
 async def get_or_create_project_qa_kb_id(session: AsyncSession, project_id: int) -> int:
@@ -252,6 +280,28 @@ async def update_kb_ingest_status(
     )
 
 
+async def update_kb_source_and_date(
+    session: AsyncSession,
+    kb_id: int,
+    project_id: int,
+    source: str,
+    info_date: date | None,
+):
+    await session.execute(
+        update(KnowledgeBase)
+        .where(
+            KnowledgeBase.id == kb_id,
+            KnowledgeBase.project_id == project_id,
+            KnowledgeBase.is_deleted == 0,
+        )
+        .values(
+            source=source,
+            date=info_date,
+            update_time=func.now(),
+        )
+    )
+
+
 async def upsert_chunks(session: AsyncSession, kb_id: int, project_id: int, chunks: list[dict]):
     """
     批量插入或更新知识库中的文本块（chunk）。每个chunk包含：
@@ -267,6 +317,8 @@ async def upsert_chunks(session: AsyncSession, kb_id: int, project_id: int, chun
             "project_id": project_id,
             "chunk_index": c["chunk_index"],
             "origin_text": c["text"],
+            "source": c.get("source"),
+            "date": c.get("date"),
             "question": c.get("question"),
             "answer": c.get("answer"),
             "embedding": c["dense"],
@@ -279,6 +331,8 @@ async def upsert_chunks(session: AsyncSession, kb_id: int, project_id: int, chun
         index_elements=["kb_id", "chunk_index"],
         set_={
             "origin_text": stmt.excluded.origin_text,
+            "source": stmt.excluded.source,
+            "date": stmt.excluded.date,
             "question": stmt.excluded.question,
             "answer": stmt.excluded.answer,
             "embedding": stmt.excluded.embedding,
@@ -357,6 +411,8 @@ async def get_qa_item_list(
             Item.id,
             Item.kb_id,
             Item.chunk_index,
+            Item.source,
+            Item.date,
             Item.question,
             Item.answer,
             Item.create_time,
@@ -380,6 +436,8 @@ async def get_qa_item_list(
                 "id": row.id,
                 "kb_id": row.kb_id,
                 "chunk_index": row.chunk_index,
+                "source": row.source,
+                "date": row.date,
                 "question": row.question,
                 "answer": row.answer,
                 "create_time": row.create_time,
@@ -535,6 +593,8 @@ async def retrieve_dense(
         {
             "id": row.Item.id,
             "text": row.Item.origin_text,
+            "source": row.Item.source,
+            "date": row.Item.date,
             "score": float(row.score),
         }
         for row in rows
@@ -572,6 +632,8 @@ async def retrieve_bm25(
         {
             "id": row.Item.id,
             "text": row.Item.origin_text,
+            "source": row.Item.source,
+            "date": row.Item.date,
             "score": float(row.score),
         }
         for row in rows
@@ -585,6 +647,8 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
         select(
             KnowledgeBase.id,
             KnowledgeBase.file_name,
+            KnowledgeBase.source,
+            KnowledgeBase.date,
             KnowledgeBase.qa_items,
             KnowledgeBase.ingest_status,
             KnowledgeBase.create_time,
@@ -605,6 +669,8 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
         .group_by(
             KnowledgeBase.id,
             KnowledgeBase.file_name,
+            KnowledgeBase.source,
+            KnowledgeBase.date,
             KnowledgeBase.qa_items,
             KnowledgeBase.ingest_status,
             KnowledgeBase.create_time,
@@ -619,6 +685,8 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
         {
             "id": row.id,
             "file_name": row.file_name,
+            "source": row.source,
+            "date": row.date,
             "qa_items": row.qa_items,
             "ingest_status": row.ingest_status,
             "chunk_count": row.chunk_count,

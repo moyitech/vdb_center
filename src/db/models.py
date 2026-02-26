@@ -1,8 +1,8 @@
-from sqlalchemy import BigInteger, Text, Integer, DateTime, Index, ForeignKey, UniqueConstraint, CheckConstraint, Boolean, text
+from sqlalchemy import BigInteger, Text, Integer, DateTime, Date, Index, ForeignKey, UniqueConstraint, CheckConstraint, Boolean, text
 from sqlalchemy.orm import DeclarativeBase, mapped_column, Mapped, relationship
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from datetime import datetime
+from datetime import datetime, date as DateType
 from pgvector.sqlalchemy import VECTOR, SPARSEVEC
 
 
@@ -51,6 +51,8 @@ class KnowledgeBase(Base, TimestampMixin, SoftDeleteMixin):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     file_name: Mapped[str] = mapped_column(Text, nullable=True)  # 记录原始文件名
+    source: Mapped[str | None] = mapped_column(Text, nullable=True, comment="来源文件名或URL")
+    date: Mapped[DateType | None] = mapped_column(Date, nullable=True, comment="信息产生日期")
     project_id: Mapped[int] = mapped_column(BigInteger, nullable=True, index=True)  # 可选的项目ID，便于多项目管理
     qa_items: Mapped[bool] = mapped_column(
         Boolean,
@@ -112,6 +114,8 @@ class Item(Base, TimestampMixin, SoftDeleteMixin):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
 
     origin_text: Mapped[str] = mapped_column(Text)
+    source: Mapped[str | None] = mapped_column(Text, nullable=True, comment="来源文件名或URL")
+    date: Mapped[DateType | None] = mapped_column(Date, nullable=True, comment="信息产生日期")
     question: Mapped[str | None] = mapped_column(Text, nullable=True, comment="QA问题")
     answer: Mapped[str | None] = mapped_column(Text, nullable=True, comment="QA答案")
 

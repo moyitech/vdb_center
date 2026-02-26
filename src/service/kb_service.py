@@ -5,7 +5,9 @@ from src.db.mapper import (
     retrieve_dense,
     retrieve_bm25,
     update_kb_ingest_status,
+    update_kb_source_and_date,
     get_or_create_project_qa_kb_id,
+    exists_non_qa_source as mapper_exists_non_qa_source,
     get_project_qa_kb_id,
     get_next_chunk_index,
     get_item_id_by_chunk_index,
@@ -24,11 +26,14 @@ from src.db.models import (
 )
 from src.utils.embedding_api import get_text_embedding
 from src.db.database import DBSession
-from src.utils.file_loader import read_pdf, read_docx, read_csv, read_qa_excel
+from src.utils.file_loader import read_pdf, read_docx, read_txt, read_csv, read_qa_excel
 from tqdm import tqdm
 from pathlib import Path
 from typing import AsyncGenerator
+from datetime import date
 from fastapi import UploadFile
+
+PRESET_QA_SOURCE = "预设QA"
 
 
 class KBService:
@@ -61,17 +66,26 @@ class KBService:
         return save_path.resolve()
     
 
-    async def _load_file(self, file_path: str) -> list[dict]:
+    async def _load_file(
+        self,
+        file_path: str,
+        source: str,
+        info_date: date | None = None,
+    ) -> list[dict]:
         file_path = file_path.replace("~", str(Path.home()))
         suffix = Path(file_path).suffix.lower()
+        fallback_source = Path(file_path).name
 
         # 文件名校验
         if suffix == ".pdf":
             chunks, _ = read_pdf(file_path)
-            return [{"text": chunk} for chunk in chunks]
+            return [{"text": chunk, "source": source, "date": info_date} for chunk in chunks]
         elif suffix == ".docx":
             chunks, _ = read_docx(file_path)
-            return [{"text": chunk} for chunk in chunks]
+            return [{"text": chunk, "source": source, "date": info_date} for chunk in chunks]
+        elif suffix == ".txt":
+            chunks, _ = read_txt(file_path)
+            return [{"text": chunk, "source": source, "date": info_date} for chunk in chunks]
         elif suffix in {".xlsx", ".xlsm"}:
             records = read_qa_excel(file_path)
             return [
@@ -79,11 +93,13 @@ class KBService:
                     "text": self._build_qa_text(record["question"], record["answer"]),
                     "question": record["question"],
                     "answer": record["answer"],
+                    "source": source or record.get("source") or fallback_source,
+                    "date": info_date if info_date is not None else record.get("date"),
                 }
                 for record in records
             ]
         else:
-            raise ValueError("Unsupported file type. Only PDF, DOCX, XLSX and XLSM are supported.")
+            raise ValueError("Unsupported file type. Only PDF, DOCX, TXT, XLSX and XLSM are supported.")
     
     async def _iter_processed_chunks(
         self,
@@ -106,26 +122,57 @@ class KBService:
                     "text": chunk["text"],
                     "question": chunk.get("question"),
                     "answer": chunk.get("answer"),
+                    "source": chunk.get("source"),
+                    "date": chunk.get("date"),
                     "dense": embedding,
                     "tokens": cut_cn(chunk["text"]),
                 }
 
     async def create_kb_from_file(
-        self, file_path: str, kb_name: str, project_id: int
+        self,
+        file_path: str,
+        kb_name: str,
+        project_id: int,
+        source: str | None = None,
+        info_date: date | None = None,
     ) -> tuple[bool, str]:
         """
         通过读取文件创建知识库，支持PDF、Word、CSV和Excel格式。首先根据文件类型调用相应的读取函数将文件内容切分成文本块，然后对每个文本块进行后处理，包括生成向量和分词。最后将处理后的数据批量插入数据库中，返回新创建的知识库ID。
         """
-        kb_id = await self.create_kb_ingest_task(kb_name, project_id)
-        success, message = await self.run_kb_ingest_task(kb_id, file_path, project_id)
+        effective_source = (source or "").strip() or Path(file_path).name
+        kb_id = await self.create_kb_ingest_task(
+            kb_name,
+            project_id,
+            source=effective_source,
+            info_date=info_date,
+        )
+        success, message = await self.run_kb_ingest_task(
+            kb_id,
+            file_path,
+            project_id,
+            source=effective_source,
+            info_date=info_date,
+        )
         return success, message
 
-    async def create_kb_ingest_task(self, kb_name: str, project_id: int) -> int:
+    async def create_kb_ingest_task(
+        self,
+        kb_name: str,
+        project_id: int,
+        source: str | None = None,
+        info_date: date | None = None,
+    ) -> int:
         """
         创建知识库入库任务，返回任务ID（即kb_id），初始状态为 ingesting。
         """
         async with DBSession() as session:
-            kb_id = await create_kb(session, kb_name, project_id)
+            kb_id = await create_kb(
+                session,
+                kb_name,
+                project_id,
+                source=source,
+                date=info_date,
+            )
             await session.commit()
             return kb_id
 
@@ -137,6 +184,18 @@ class KBService:
             kb_id = await get_or_create_project_qa_kb_id(session, project_id)
             await session.commit()
             return kb_id
+
+    async def exists_non_qa_source(self, project_id: int, source: str) -> bool:
+        normalized_source = source.strip()
+        if not normalized_source:
+            return False
+
+        async with DBSession() as session:
+            return await mapper_exists_non_qa_source(
+                session=session,
+                project_id=project_id,
+                source=normalized_source,
+            )
 
     def _build_qa_text(self, question: str, answer: str) -> str:
         return f"问题：{question.strip()}\n答案：{answer.strip()}"
@@ -190,6 +249,13 @@ class KBService:
         async with DBSession() as session:
             kb_id = await get_or_create_project_qa_kb_id(session, project_id)
             try:
+                await update_kb_source_and_date(
+                    session,
+                    kb_id,
+                    project_id,
+                    PRESET_QA_SOURCE,
+                    None,
+                )
                 # 已存在 QA KB 时也统一标记为 ingesting，表示正在追加写入。
                 await update_kb_ingest_status(
                     session, kb_id, project_id, KB_INGEST_STATUS_INGESTING
@@ -227,6 +293,8 @@ class KBService:
                             "text": qa_text,
                             "question": question,
                             "answer": answer,
+                            "source": PRESET_QA_SOURCE,
+                            "date": None,
                             "dense": embedding,
                             "tokens": cut_cn(qa_text),
                         }
@@ -373,14 +441,24 @@ class KBService:
         project_id: int,
         append_to_existing: bool = False,
         dedup_origin_text: bool = False,
+        source: str | None = None,
+        info_date: date | None = None,
     ) -> tuple[bool, str]:
         """
         执行知识库入库任务。可直接调用，也可在 FastAPI BackgroundTasks 中调用。
         """
         total_input_count = 0
         skipped_count = 0
+        effective_source = (source or "").strip() or Path(file_path).name
         async with DBSession() as session:
             try:
+                await update_kb_source_and_date(
+                    session,
+                    kb_id,
+                    project_id,
+                    effective_source,
+                    info_date,
+                )
                 await update_kb_ingest_status(
                     session,
                     kb_id,
@@ -391,7 +469,11 @@ class KBService:
                 )
                 await session.commit()
 
-                chunks = await self._load_file(file_path)
+                chunks = await self._load_file(
+                    file_path,
+                    source=effective_source,
+                    info_date=info_date,
+                )
                 total_input_count = len(chunks)
                 if not chunks:
                     raise ValueError("No valid chunks extracted from the file.")
