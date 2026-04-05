@@ -75,6 +75,7 @@ uv run uvicorn src.main:app --host 0.0.0.0 --port 8001 --reload
 ## 主要 API 一览
 
 - `POST /kb/upload`：上传文件并创建/追加入库任务。
+- `GET /project/list`：获取系统内已有的项目列表。
 - `GET /kb/list`：获取项目下 KB 列表。
 - `GET /kb/task/{kb_id}`：查询入库任务状态。
 - `POST /kb/delete`：删除指定 KB（软删除，带限制条件）。

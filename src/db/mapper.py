@@ -703,6 +703,49 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
     ]
 
 
+async def get_project_list(session: AsyncSession):
+    """
+    获取系统内已有数据的项目列表。
+    """
+    latest_update_time = func.max(KnowledgeBase.update_time)
+
+    stmt = (
+        select(
+            KnowledgeBase.project_id,
+            func.count(func.distinct(KnowledgeBase.id)).label("kb_count"),
+            func.count(Item.id).label("chunk_count"),
+            func.min(KnowledgeBase.create_time).label("create_time"),
+            latest_update_time.label("update_time"),
+        )
+        .where(
+            KnowledgeBase.project_id.is_not(None),
+            KnowledgeBase.project_id > 0,
+            KnowledgeBase.is_deleted == 0,
+        )
+        .outerjoin(
+            Item,
+            (Item.kb_id == KnowledgeBase.id)
+            & (Item.is_deleted == 0),
+        )
+        .group_by(KnowledgeBase.project_id)
+        .order_by(latest_update_time.desc(), KnowledgeBase.project_id.desc())
+    )
+
+    result = await session.execute(stmt)
+    rows = result.all()
+
+    return [
+        {
+            "project_id": row.project_id,
+            "kb_count": row.kb_count,
+            "chunk_count": row.chunk_count,
+            "create_time": row.create_time,
+            "update_time": row.update_time,
+        }
+        for row in rows
+    ]
+
+
 async def search_kb_list_by_source(
     session: AsyncSession,
     project_id: int,
