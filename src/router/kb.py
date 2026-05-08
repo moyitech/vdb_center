@@ -10,9 +10,14 @@ from src.model.kb_model import (
     KBDeleteResponse,
     KBDeleteSuccessResponse,
     KbIdPath,
+    KBListData,
     KBListItem,
+    KBPageQuery,
+    KBPageSizeQuery,
     KBListResponse,
     KBListSuccessResponse,
+    KBSourceSearchResponse,
+    KBSourceSearchSuccessResponse,
     KBTaskStatusData,
     KBTaskStatusResponse,
     KBTaskStatusSuccessResponse,
@@ -132,22 +137,30 @@ async def upload_file(
 
 
 @router.get("/list", response_model=KBListResponse)
-async def get_project_kb_list(project_id: ProjectIdQuery) -> KBListResponse:
+async def get_project_kb_list(
+    project_id: ProjectIdQuery,
+    page: KBPageQuery = 1,
+    page_size: KBPageSizeQuery = 20,
+) -> KBListResponse:
     kb_service = KBService()
     try:
-        kb_list = await kb_service.get_kb_list_for_project(project_id)
+        data = await kb_service.get_kb_list_for_project(
+            project_id,
+            page=page,
+            page_size=page_size,
+        )
         return KBListSuccessResponse(
-            data=[KBListItem.model_validate(item) for item in kb_list]
+            data=KBListData.model_validate(data)
         )
     except Exception as e:
         return APIErrorResponse(error=str(e))
 
 
-@router.get("/source/search", response_model=KBListResponse)
+@router.get("/source/search", response_model=KBSourceSearchResponse)
 async def search_kb_by_source(
     project_id: ProjectIdQuery,
     source_keyword: SourceKeywordQuery,
-) -> KBListResponse:
+) -> KBSourceSearchResponse:
     kb_service = KBService()
     try:
         normalized_keyword = source_keyword.strip()
@@ -157,7 +170,7 @@ async def search_kb_by_source(
             project_id=project_id,
             source_keyword=normalized_keyword,
         )
-        return KBListSuccessResponse(
+        return KBSourceSearchSuccessResponse(
             data=[KBListItem.model_validate(item) for item in kb_list]
         )
     except Exception as e:

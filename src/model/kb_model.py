@@ -12,6 +12,14 @@ KbIdPath = Annotated[int, Path(..., gt=0, description="知识库ID")]
 ItemIdPath = Annotated[int, Path(..., gt=0, description="QA条目ID")]
 SourceQuery = Annotated[str, Query(..., min_length=1, description="来源")]
 SourceKeywordQuery = Annotated[str, Query(..., min_length=1, description="来源关键词")]
+KBPageQuery = Annotated[
+    int,
+    Query(ge=1, description="页码（从1开始）"),
+]
+KBPageSizeQuery = Annotated[
+    int,
+    Query(ge=1, le=1000, description="每页条数"),
+]
 QAPageQuery = Annotated[
     int,
     Query(ge=1, description="页码（从1开始）"),
@@ -78,14 +86,34 @@ class KBListItem(BaseModel):
     update_time: datetime = Field(..., description="更新时间")
 
 
+class KBListData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    current_page: int = Field(..., ge=1, description="当前页码")
+    page_size: int = Field(..., ge=1, description="每页条数")
+    total_pages: int = Field(..., ge=0, description="总页数")
+    total_count: int = Field(..., ge=0, description="总数量")
+    items: list[KBListItem] = Field(default_factory=list, description="项目KB列表")
+
+
 class KBListSuccessResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     success: Literal[True] = Field(default=True, description="是否成功")
-    data: list[KBListItem] = Field(default_factory=list, description="项目KB列表")
+    data: KBListData = Field(..., description="项目KB分页列表")
 
 
 KBListResponse = KBListSuccessResponse | APIErrorResponse
+
+
+class KBSourceSearchSuccessResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    success: Literal[True] = Field(default=True, description="是否成功")
+    data: list[KBListItem] = Field(default_factory=list, description="来源搜索KB列表")
+
+
+KBSourceSearchResponse = KBSourceSearchSuccessResponse | APIErrorResponse
 
 
 class KBTaskStatusData(BaseModel):

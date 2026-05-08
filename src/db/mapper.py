@@ -639,10 +639,28 @@ async def retrieve_bm25(
         for row in rows
     ]
 
-async def get_kb_list_for_project(session: AsyncSession, project_id: int):
+async def get_kb_list_for_project(
+    session: AsyncSession,
+    project_id: int,
+    *,
+    page: int = 1,
+    page_size: int = 20,
+) -> tuple[list[dict], int]:
     """
-    获取指定项目下的知识库列表，包含每个知识库的ID、文件名、chunks数量、入库状态、创建时间和更新时间。
+    获取指定项目下的知识库分页列表，包含每个知识库的ID、文件名、chunks数量、入库状态、创建时间和更新时间。
     """
+    total_stmt = (
+        select(func.count(KnowledgeBase.id))
+        .where(
+            KnowledgeBase.project_id == project_id,
+            KnowledgeBase.is_deleted == 0,
+            KnowledgeBase.qa_items.is_(False),
+        )
+    )
+    total_result = await session.execute(total_stmt)
+    total_count = int(total_result.scalar_one() or 0)
+
+    offset = (page - 1) * page_size
     stmt = (
         select(
             KnowledgeBase.id,
@@ -655,7 +673,7 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
             KnowledgeBase.failed_count,
             KnowledgeBase.create_time,
             KnowledgeBase.update_time,
-            func.count(Item.id).label("chunk_count")
+            func.count(Item.id).label("chunk_count"),
         )
         .where(
             KnowledgeBase.project_id == project_id,
@@ -680,27 +698,33 @@ async def get_kb_list_for_project(session: AsyncSession, project_id: int):
             KnowledgeBase.create_time,
             KnowledgeBase.update_time,
         )
+        .order_by(KnowledgeBase.update_time.desc(), KnowledgeBase.id.desc())
+        .offset(offset)
+        .limit(page_size)
     )
 
     result = await session.execute(stmt)
     rows = result.all()
 
-    return [
-        {
-            "id": row.id,
-            "file_name": row.file_name,
-            "source": row.source,
-            "date": row.date,
-            "qa_items": row.qa_items,
-            "ingest_status": row.ingest_status,
-            "success_count": row.success_count,
-            "failed_count": row.failed_count,
-            "chunk_count": row.chunk_count,
-            "create_time": row.create_time,
-            "update_time": row.update_time,
-        }
-        for row in rows
-    ]
+    return (
+        [
+            {
+                "id": row.id,
+                "file_name": row.file_name,
+                "source": row.source,
+                "date": row.date,
+                "qa_items": row.qa_items,
+                "ingest_status": row.ingest_status,
+                "success_count": row.success_count,
+                "failed_count": row.failed_count,
+                "chunk_count": row.chunk_count,
+                "create_time": row.create_time,
+                "update_time": row.update_time,
+            }
+            for row in rows
+        ],
+        total_count,
+    )
 
 
 async def get_project_list(session: AsyncSession):

@@ -674,12 +674,22 @@ class KBService:
             "merged_results": merged_results
         }
 
-    async def get_kb_list_for_project(self, project_id: int) -> list[dict]:
+    async def get_kb_list_for_project(
+        self,
+        project_id: int,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> dict:
         """
-        获取指定项目下的知识库列表。
+        获取指定项目下的知识库分页列表。
         """
         async with DBSession() as session:
-            kb_list = await mapper_get_kb_list_for_project(session, project_id)
+            kb_list, total_count = await mapper_get_kb_list_for_project(
+                session,
+                project_id,
+                page=page,
+                page_size=page_size,
+            )
             for item in kb_list:
                 item["task_status"] = self._build_task_status(
                     ingest_status=item.get("ingest_status", ""),
@@ -688,7 +698,14 @@ class KBService:
                 )
                 item.pop("success_count", None)
                 item.pop("failed_count", None)
-            return kb_list
+            total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 0
+            return {
+                "current_page": page,
+                "page_size": page_size,
+                "total_pages": total_pages,
+                "total_count": total_count,
+                "items": kb_list,
+            }
 
     async def search_kb_list_by_source(
         self,
